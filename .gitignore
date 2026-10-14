@@ -1,0 +1,50 @@
+# Keil compiler and linker outputs
+*.o
+*.obj
+*.d
+*.crf
+*.axf
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.lnp
+*.sct.bak
+*.build_log.htm
+*.dep
+*.iex
+*.i
+
+# Local Keil session and debugger layout
+*.uvopt
+*.uvoptx
+*.uvgui.*
+*.uvguix.*
+*.bak
+*.tmp
+/MDK-ARM/MotorControl/
+/MDK-ARM/Objects/
+/MDK-ARM/Listings/
+/MDK-ARM/DebugConfig/
+
+# CubeMX local generated metadata
+/.mxproject
+
+# CMSIS content not referenced by this Cortex-M3 project
+/Drivers/CMSIS/DSP/
+/Drivers/CMSIS/NN/
+/Drivers/CMSIS/Lib/
+/Drivers/CMSIS/docs/
+/Drivers/CMSIS/Core_A/
+
+# Local credentials and editor configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+/.vscode/
+/.idea/
+Thumbs.db
+.DS_Store
