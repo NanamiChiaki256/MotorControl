@@ -37,6 +37,12 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define MOTOR_FAULT_NONE          0U
+#define MOTOR_FAULT_NO_ENCODER    1U
+#define MOTOR_FAULT_OVERCURRENT   2U
+#define MOTOR_FAULT_INA_READ      3U
+
+#define INA_READ_FAIL_TEST  0U
 
 /* USER CODE END PD */
 
@@ -165,9 +171,10 @@ void StartDefaultTask(void const * argument)
   uint16_t inaShuntRaw;
   int32_t inaShuntCount;
   int32_t inaCurrentmA;
-  uint8_t encoderFault = 0;
+  uint8_t motorFault = MOTOR_FAULT_NONE;
   uint16_t motionLastCount = 0;
   uint32_t lastMotionTick = 0;
+  uint8_t inaReadOk;
   const int32_t targetCps = 1000;
   const int32_t basePwm = 60;
 
@@ -182,6 +189,11 @@ void StartDefaultTask(void const * argument)
   float integralTerm = 0.0f;
   float integralNext;
   float output;
+  
+  /* 当前空载、PWM不超过20%工况的实验性电流报警阈值 */
+  const int32_t currentTripmA = 20;
+
+  uint8_t overCurrentHits = 0;
 
   OLED_ShowString(1, 1, "ENC: 00000      ");
   OLED_ShowString(2, 1, "MOTOR: STOP     ");
@@ -220,10 +232,11 @@ void StartDefaultTask(void const * argument)
 
       if ((ch == 'R' || ch == 'r') &&
           running == 0 &&
-          encoderFault == 0)
+          motorFault == MOTOR_FAULT_NONE)
       {
         pwmCompare = 80;
         integralTerm = 0.0f;
+        overCurrentHits = 0;
 
         /* 建立测速起点 */
         speedLastCount =
@@ -249,7 +262,7 @@ void StartDefaultTask(void const * argument)
         pwmCompare = 0;
 
         /* S停止，同时允许人工清除故障 */
-        encoderFault = 0;
+        motorFault = MOTOR_FAULT_NONE;
 
         OLED_ShowString(2, 1, "MOTOR: STOP     ");
       }
@@ -290,7 +303,7 @@ void StartDefaultTask(void const * argument)
         pwmCompare = 0;
 
         /* 锁定故障，禁止R直接重启 */
-        encoderFault = 1;
+        motorFault = MOTOR_FAULT_NO_ENCODER;
 
         OLED_ShowString(2, 1, "FAULT: NO ENC   ");
       }
@@ -392,25 +405,88 @@ void StartDefaultTask(void const * argument)
 
       OLED_ShowSignedNum(4, 9, speedCps, 5);
       
-      if (INA_ReadRegister(0x40U, 0x01U, &inaShuntRaw) != 0U)
+      /* 先执行真实读取 */
+      inaReadOk = INA_ReadRegister(0x40U, 0x01U, &inaShuntRaw);
+
+      #if INA_READ_FAIL_TEST
+      /* 进入运行状态约200ms后，模拟一次读取失败 */
+      if (running != 0 &&
+          (uint32_t)(nowTick - runStartTick) >= 200U)
+      {
+        inaReadOk = 0U;
+      }
+      #endif
+
+      if (inaReadOk != 0U)
       {
         inaShuntCount = (int32_t)inaShuntRaw;
 
-        /* 将16位补码还原成有符号数 */
+        /* 还原16位有符号数 */
         if ((inaShuntRaw & 0x8000U) != 0U)
         {
           inaShuntCount -= 65536;
         }
 
-        /* R010 = 0.01欧，每个计数对应0.25mA */
         inaCurrentmA = inaShuntCount / 4;
 
         OLED_ShowSignedNum(3, 9, inaCurrentmA, 5);
         OLED_ShowString(3, 15, "mA");
+
+        /*
+         * 仅运行时检测。
+         * 启动后的前300ms暂不判断电流超限。
+         */
+        if (running != 0 &&
+            (uint32_t)(nowTick - runStartTick) >= 300U)
+        {
+          if (inaCurrentmA >= currentTripmA)
+          {
+            if (overCurrentHits < 3U)
+            {
+              overCurrentHits++;
+            }
+          }
+          else
+          {
+            /* 必须连续超限，中间恢复正常就重新计数 */
+            overCurrentHits = 0;
+          }
+
+          if (overCurrentHits >= 3U)
+          {
+            Motor_Stop();
+            running = 0;
+            integralTerm = 0.0f;
+            pwmCompare = 0;
+
+            motorFault = MOTOR_FAULT_OVERCURRENT;
+            overCurrentHits = 0;
+
+            OLED_ShowString(2, 1, "FAULT: CURRENT  ");
+          }
+        }
+        else
+        {
+          overCurrentHits = 0;
+        }
       }
       else
       {
         OLED_ShowString(3, 9, "  ERR   ");
+        overCurrentHits = 0;
+
+        /* 运行期间失去电流监测，停止输出并锁定故障 */
+        if (running != 0)
+        {
+          Motor_Stop();
+          running = 0;
+          integralTerm = 0.0f;
+          pwmCompare = 0;
+
+          motorFault = MOTOR_FAULT_INA_READ;
+
+          OLED_ShowString(2, 1, "FAULT: INA I2C  ");
+        }
       }
     }
   }
