@@ -54,9 +54,17 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 
+uint8_t INA_ReadRegister(uint8_t address,
+                         uint8_t reg,
+                         uint16_t *value);
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define INA_SCL_Pin GPIO_PIN_12
+#define INA_SCL_GPIO_Port GPIOB
+#define INA_SDA_Pin GPIO_PIN_13
+#define INA_SDA_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
